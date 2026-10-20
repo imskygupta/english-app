@@ -62,6 +62,7 @@ export interface SpacedVocabCard {
   intervalDays: number;
   nextReviewDate: number; // timestamp
   lastReviewedDate?: number;
+  tags?: string[];
 }
 
 export interface DailyActivity {

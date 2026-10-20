@@ -274,3 +274,163 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     --sidebar-width: 0px;
   }
 }
+
+/* ==========================================================================
+   Large Hero Voice Button & Continuous Listening Styles
+   ========================================================================== */
+
+@keyframes voicePulseRing {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes voiceBreath {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 35px var(--glow-color, rgba(99, 102, 241, 0.4));
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 60px var(--glow-color, rgba(99, 102, 241, 0.7));
+  }
+}
+
+@keyframes orbRotate {
+  0% {
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    filter: hue-rotate(360deg);
+  }
+}
+
+.voice-hero-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  position: relative;
+  width: 100%;
+}
+
+.voice-orb-wrapper {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.voice-ring {
+  position: absolute;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  pointer-events: none;
+  border: 2px solid var(--ring-color, rgba(16, 185, 129, 0.5));
+}
+
+.voice-ring-1 {
+  animation: voicePulseRing 2.4s infinite cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.voice-ring-2 {
+  animation: voicePulseRing 2.4s infinite cubic-bezier(0.2, 0.8, 0.2, 1) 0.8s;
+}
+
+.voice-ring-3 {
+  animation: voicePulseRing 2.4s infinite cubic-bezier(0.2, 0.8, 0.2, 1) 1.6s;
+}
+
+.large-voice-btn {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+  z-index: 5;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  outline: none;
+  user-select: none;
+}
+
+.large-voice-btn:hover {
+  transform: scale(1.08);
+}
+
+.large-voice-btn:active {
+  transform: scale(0.96);
+}
+
+/* Button State: Idle */
+.large-voice-btn.state-idle {
+  background: radial-gradient(circle at 35% 35%, #818cf8 0%, #6366f1 50%, #4338ca 100%);
+  box-shadow: 0 10px 35px rgba(99, 102, 241, 0.45), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+}
+
+/* Button State: Listening (Hot Mic) */
+.large-voice-btn.state-listening {
+  background: radial-gradient(circle at 35% 35%, #34d399 0%, #10b981 50%, #047857 100%);
+  box-shadow: 0 10px 45px rgba(16, 185, 129, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.5);
+  color: #ffffff;
+  animation: voiceBreath 1.8s infinite ease-in-out;
+  --glow-color: rgba(16, 185, 129, 0.6);
+}
+
+/* Button State: Processing AI */
+.large-voice-btn.state-processing {
+  background: radial-gradient(circle at 35% 35%, #c084fc 0%, #8b5cf6 50%, #6d28d9 100%);
+  box-shadow: 0 10px 40px rgba(139, 92, 246, 0.5), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  animation: voiceBreath 1.4s infinite ease-in-out;
+  --glow-color: rgba(139, 92, 246, 0.6);
+}
+
+/* Button State: Tutor Speaking */
+.large-voice-btn.state-speaking {
+  background: radial-gradient(circle at 35% 35%, #38bdf8 0%, #0284c7 50%, #0369a1 100%);
+  box-shadow: 0 10px 40px rgba(14, 165, 233, 0.55), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  animation: voiceBreath 1.6s infinite ease-in-out;
+  --glow-color: rgba(14, 165, 233, 0.6);
+}
+
+/* Live Speech Transcript Box */
+.live-transcript-box {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-lg);
+  padding: 14px 22px;
+  max-width: 580px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  margin-top: 10px;
+  transition: all 0.25s ease;
+}
+
+.live-transcript-box.is-hearing {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(6, 78, 59, 0.35);
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.2);
+}

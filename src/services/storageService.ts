@@ -1,11 +1,10 @@
 import type { UserProfile, MistakeRecord, SpacedVocabCard, ProgressStats, DailyActivity } from '../types/user';
 import type { CorrectionItem } from '../types/tutor';
 import { INITIAL_VOCABULARY } from '../data/seedVocabulary';
+import { supabaseService } from './supabaseService';
+import { authService } from './authService';
 
-const PROFILE_KEY = 'fluentmate_user_profile';
-const MISTAKES_KEY = 'fluentmate_mistakes_memory';
-const VOCAB_KEY = 'fluentmate_spaced_vocab';
-const STATS_KEY = 'fluentmate_progress_stats';
+export const DEFAULT_GEMINI_API_KEY = 'AIzaSyDYpWF4Vjv3_2BPI_SSGnmsPf51leyS_0c';
 
 const DEFAULT_PROFILE: UserProfile = {
   name: 'Learner',
@@ -23,6 +22,7 @@ const DEFAULT_PROFILE: UserProfile = {
   voiceSpeed: 0.95,
   voicePitch: 1.0,
   autoSpeakTutor: true,
+  geminiApiKey: DEFAULT_GEMINI_API_KEY,
   theme: 'dark',
   onboardingCompleted: true
 };
@@ -57,14 +57,10 @@ const DEFAULT_MISTAKES: MistakeRecord[] = [
 function generateWeeklyActivity(): DailyActivity[] {
   const days: DailyActivity[] = [];
   const today = new Date();
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(today.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-
-    // Give realistic active values for the past few days
     const isPastActive = i <= 2;
     days.push({
       date: dateStr,
@@ -96,29 +92,58 @@ const DEFAULT_STATS: ProgressStats = {
 };
 
 class StorageService {
+  private getUid(uid?: string): string {
+    return (uid || authService.getActiveUserId() || 'default_user').toLowerCase().trim();
+  }
+
+  private getKey(prefix: string, uid?: string): string {
+    return `fluentmate_${this.getUid(uid)}_${prefix}`;
+  }
+
   // User Profile
-  getUserProfile(): UserProfile {
+  getUserProfile(uid?: string): UserProfile {
+    const activeUid = this.getUid(uid);
+    supabaseService.setUserId(activeUid);
+
     try {
-      const data = localStorage.getItem(PROFILE_KEY);
-      if (data) return JSON.parse(data);
+      const data = localStorage.getItem(this.getKey('profile', activeUid)) || localStorage.getItem('fluentmate_user_profile');
+      const activeAccount = authService.getActiveUser();
+
+      if (data) {
+        const parsed = JSON.parse(data);
+        return {
+          ...DEFAULT_PROFILE,
+          ...parsed,
+          name: activeAccount?.name || parsed.name || DEFAULT_PROFILE.name,
+          geminiApiKey: parsed.geminiApiKey || DEFAULT_GEMINI_API_KEY
+        };
+      } else if (activeAccount) {
+        return {
+          ...DEFAULT_PROFILE,
+          name: activeAccount.name
+        };
+      }
     } catch (e) {
       console.warn('Failed reading profile from localStorage', e);
     }
     return DEFAULT_PROFILE;
   }
 
-  saveUserProfile(profile: UserProfile): void {
+  saveUserProfile(profile: UserProfile, uid?: string): void {
+    const activeUid = this.getUid(uid);
     try {
-      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+      localStorage.setItem(this.getKey('profile', activeUid), JSON.stringify(profile));
+      supabaseService.syncProfile(profile, activeUid).catch((e) => console.debug('Supabase sync note:', e));
     } catch (e) {
       console.warn('Failed saving profile to localStorage', e);
     }
   }
 
   // Mistakes Memory System
-  getMistakes(): MistakeRecord[] {
+  getMistakes(uid?: string): MistakeRecord[] {
+    const activeUid = this.getUid(uid);
     try {
-      const data = localStorage.getItem(MISTAKES_KEY);
+      const data = localStorage.getItem(this.getKey('mistakes', activeUid)) || localStorage.getItem('fluentmate_mistakes_memory');
       if (data) return JSON.parse(data);
     } catch (e) {
       console.warn('Failed reading mistakes from localStorage', e);
@@ -126,20 +151,25 @@ class StorageService {
     return DEFAULT_MISTAKES;
   }
 
-  saveMistakes(mistakes: MistakeRecord[]): void {
+  saveMistakes(mistakes: MistakeRecord[], uid?: string): void {
+    const activeUid = this.getUid(uid);
     try {
-      localStorage.setItem(MISTAKES_KEY, JSON.stringify(mistakes));
+      localStorage.setItem(this.getKey('mistakes', activeUid), JSON.stringify(mistakes));
     } catch (e) {
       console.warn('Failed saving mistakes to localStorage', e);
     }
   }
 
-  recordMistake(correction: CorrectionItem): void {
-    const mistakes = this.getMistakes();
+  recordMistake(correction: CorrectionItem, uid?: string): void {
+    const activeUid = this.getUid(uid);
+    const mistakes = this.getMistakes(activeUid);
     const existingIndex = mistakes.findIndex(
-      (m) => m.originalPhrase.toLowerCase() === correction.original.toLowerCase() ||
-             m.correctedPhrase.toLowerCase() === correction.corrected.toLowerCase()
+      (m) =>
+        m.originalPhrase.toLowerCase() === correction.original.toLowerCase() ||
+        m.correctedPhrase.toLowerCase() === correction.corrected.toLowerCase()
     );
+
+    let targetMistake: MistakeRecord;
 
     if (existingIndex >= 0) {
       const existing = mistakes[existingIndex];
@@ -147,6 +177,7 @@ class StorageService {
       existing.lastOccurred = Date.now();
       existing.isImproved = false;
       mistakes[existingIndex] = existing;
+      targetMistake = existing;
     } else {
       const newMistake: MistakeRecord = {
         id: `m_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -161,32 +192,37 @@ class StorageService {
         recommendedTopic: `${correction.category.toUpperCase()} Review`
       };
       mistakes.unshift(newMistake);
+      targetMistake = newMistake;
     }
 
-    this.saveMistakes(mistakes);
+    this.saveMistakes(mistakes, activeUid);
+    supabaseService.syncSingleMistake(targetMistake, activeUid).catch(() => {});
 
     // Also update stats category
-    const stats = this.getProgressStats();
+    const stats = this.getProgressStats(activeUid);
     stats.mistakesCountByCategory[correction.category] = (stats.mistakesCountByCategory[correction.category] || 0) + 1;
-    this.saveProgressStats(stats);
+    this.saveProgressStats(stats, activeUid);
   }
 
-  markMistakePracticed(mistakeId: string, resolved: boolean): void {
-    const mistakes = this.getMistakes();
+  markMistakePracticed(mistakeId: string, resolved: boolean, uid?: string): void {
+    const activeUid = this.getUid(uid);
+    const mistakes = this.getMistakes(activeUid);
     const item = mistakes.find((m) => m.id === mistakeId);
     if (item) {
       item.practicedCount += 1;
       if (resolved) {
         item.isImproved = true;
       }
-      this.saveMistakes(mistakes);
+      this.saveMistakes(mistakes, activeUid);
+      supabaseService.syncSingleMistake(item, activeUid).catch(() => {});
     }
   }
 
   // Spaced Repetition Vocabulary
-  getVocabulary(): SpacedVocabCard[] {
+  getVocabulary(uid?: string): SpacedVocabCard[] {
+    const activeUid = this.getUid(uid);
     try {
-      const data = localStorage.getItem(VOCAB_KEY);
+      const data = localStorage.getItem(this.getKey('vocab', activeUid)) || localStorage.getItem('fluentmate_spaced_vocab');
       if (data) return JSON.parse(data);
     } catch (e) {
       console.warn('Failed reading vocab from localStorage', e);
@@ -194,16 +230,33 @@ class StorageService {
     return INITIAL_VOCABULARY;
   }
 
-  saveVocabulary(vocab: SpacedVocabCard[]): void {
+  saveVocabulary(vocab: SpacedVocabCard[], uid?: string): void {
+    const activeUid = this.getUid(uid);
     try {
-      localStorage.setItem(VOCAB_KEY, JSON.stringify(vocab));
+      localStorage.setItem(this.getKey('vocab', activeUid), JSON.stringify(vocab));
     } catch (e) {
       console.warn('Failed saving vocab to localStorage', e);
     }
   }
 
-  updateVocabRating(vocabId: string, rating: 'easy' | 'good' | 'hard'): void {
-    const vocab = this.getVocabulary();
+  addVocabCards(cards: SpacedVocabCard[], uid?: string): void {
+    const activeUid = this.getUid(uid);
+    const current = this.getVocabulary(activeUid);
+    const existingWords = new Set(current.map((c) => c.word.toLowerCase()));
+
+    const uniqueNew = cards.filter((c) => !existingWords.has(c.word.toLowerCase()));
+    const updated = [...uniqueNew, ...current];
+
+    this.saveVocabulary(updated, activeUid);
+
+    for (const card of uniqueNew) {
+      supabaseService.syncSingleVocab(card, activeUid).catch(() => {});
+    }
+  }
+
+  updateVocabRating(vocabId: string, rating: 'easy' | 'good' | 'hard', uid?: string): void {
+    const activeUid = this.getUid(uid);
+    const vocab = this.getVocabulary(activeUid);
     const item = vocab.find((v) => v.id === vocabId);
     if (!item) return;
 
@@ -225,13 +278,15 @@ class StorageService {
       item.nextReviewDate = Date.now() + 12 * 60 * 60 * 1000; // review in 12 hours
     }
 
-    this.saveVocabulary(vocab);
+    this.saveVocabulary(vocab, activeUid);
+    supabaseService.syncSingleVocab(item, activeUid).catch(() => {});
   }
 
   // Progress Stats
-  getProgressStats(): ProgressStats {
+  getProgressStats(uid?: string): ProgressStats {
+    const activeUid = this.getUid(uid);
     try {
-      const data = localStorage.getItem(STATS_KEY);
+      const data = localStorage.getItem(this.getKey('stats', activeUid)) || localStorage.getItem('fluentmate_progress_stats');
       if (data) return JSON.parse(data);
     } catch (e) {
       console.warn('Failed reading stats from localStorage', e);
@@ -239,22 +294,25 @@ class StorageService {
     return DEFAULT_STATS;
   }
 
-  saveProgressStats(stats: ProgressStats): void {
+  saveProgressStats(stats: ProgressStats, uid?: string): void {
+    const activeUid = this.getUid(uid);
     try {
-      localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+      localStorage.setItem(this.getKey('stats', activeUid), JSON.stringify(stats));
+      supabaseService.syncStats(stats, activeUid).catch(() => {});
     } catch (e) {
       console.warn('Failed saving stats to localStorage', e);
     }
   }
 
-  addXP(amount: number): UserProfile {
-    const profile = this.getUserProfile();
+  addXP(amount: number, uid?: string): UserProfile {
+    const activeUid = this.getUid(uid);
+    const profile = this.getUserProfile(activeUid);
     profile.totalXP += amount;
     profile.gems += Math.floor(amount / 10);
-    this.saveUserProfile(profile);
+    this.saveUserProfile(profile, activeUid);
 
     // Update today's weekly activity
-    const stats = this.getProgressStats();
+    const stats = this.getProgressStats(activeUid);
     const todayStr = new Date().toISOString().split('T')[0];
     const todayActivity = stats.weeklyActivity.find((a) => a.date === todayStr);
     if (todayActivity) {
@@ -272,13 +330,14 @@ class StorageService {
         stats.weeklyActivity.shift();
       }
     }
-    this.saveProgressStats(stats);
+    this.saveProgressStats(stats, activeUid);
 
     return profile;
   }
 
-  recordSpeakingSeconds(seconds: number): void {
-    const stats = this.getProgressStats();
+  recordSpeakingSeconds(seconds: number, uid?: string): void {
+    const activeUid = this.getUid(uid);
+    const stats = this.getProgressStats(activeUid);
     stats.speakingDurationSeconds += seconds;
     const todayStr = new Date().toISOString().split('T')[0];
     const todayActivity = stats.weeklyActivity.find((a) => a.date === todayStr);
@@ -286,30 +345,99 @@ class StorageService {
       todayActivity.speakingSeconds += seconds;
       todayActivity.minutesSpent += Math.round(seconds / 60);
     }
-    this.saveProgressStats(stats);
+    this.saveProgressStats(stats, activeUid);
   }
 
-  completeChapter(chapterId: string, xpEarned: number): UserProfile {
-    const profile = this.getUserProfile();
+  completeChapter(chapterId: string, xpEarned: number, uid?: string): UserProfile {
+    const activeUid = this.getUid(uid);
+    const profile = this.getUserProfile(activeUid);
     if (!profile.completedChapters.includes(chapterId)) {
       profile.completedChapters.push(chapterId);
     }
     profile.totalXP += xpEarned;
-    this.saveUserProfile(profile);
+    this.saveUserProfile(profile, activeUid);
 
-    const stats = this.getProgressStats();
+    const stats = this.getProgressStats(activeUid);
     stats.lessonsCompletedCount = profile.completedChapters.length;
-    this.saveProgressStats(stats);
+    this.saveProgressStats(stats, activeUid);
 
     return profile;
   }
 
-  // Reset entire learning progress
-  resetAllProgress(): void {
-    localStorage.removeItem(PROFILE_KEY);
-    localStorage.removeItem(MISTAKES_KEY);
-    localStorage.removeItem(VOCAB_KEY);
-    localStorage.removeItem(STATS_KEY);
+  // Reset progress for this user
+  resetAllProgress(uid?: string): void {
+    const activeUid = this.getUid(uid);
+    localStorage.removeItem(this.getKey('profile', activeUid));
+    localStorage.removeItem(this.getKey('mistakes', activeUid));
+    localStorage.removeItem(this.getKey('vocab', activeUid));
+    localStorage.removeItem(this.getKey('stats', activeUid));
+  }
+
+  // Initialize and check Supabase cloud sync
+  async initCloudSync(uid?: string): Promise<{ synced: boolean; message: string }> {
+    const activeUid = this.getUid(uid);
+    supabaseService.setUserId(activeUid);
+
+    try {
+      const status = await supabaseService.checkConnection();
+      if (!status.connected || !status.tablesFound) {
+        return { synced: false, message: status.message };
+      }
+
+      // Check if remote profile exists
+      const cloudProfile = await supabaseService.fetchProfile(activeUid);
+      if (cloudProfile) {
+        localStorage.setItem(this.getKey('profile', activeUid), JSON.stringify(cloudProfile));
+      } else {
+        // Push local profile to cloud
+        await supabaseService.syncProfile(this.getUserProfile(activeUid), activeUid);
+      }
+
+      // Check remote mistakes
+      const cloudMistakes = await supabaseService.fetchMistakes(activeUid);
+      if (cloudMistakes && cloudMistakes.length > 0) {
+        localStorage.setItem(this.getKey('mistakes', activeUid), JSON.stringify(cloudMistakes));
+      }
+
+      // Check remote vocabulary
+      const cloudVocab = await supabaseService.fetchVocabulary(activeUid);
+      if (cloudVocab && cloudVocab.length > 0) {
+        localStorage.setItem(this.getKey('vocab', activeUid), JSON.stringify(cloudVocab));
+      }
+
+      return { synced: true, message: `Cloud sync active for @${activeUid}!` };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Cloud sync error';
+      return { synced: false, message: msg };
+    }
+  }
+
+  // Explicit full manual sync
+  async syncAllToCloud(uid?: string): Promise<{ success: boolean; message: string }> {
+    const activeUid = this.getUid(uid);
+    try {
+      const profile = this.getUserProfile(activeUid);
+      const mistakes = this.getMistakes(activeUid);
+      const vocab = this.getVocabulary(activeUid);
+      const stats = this.getProgressStats(activeUid);
+
+      await supabaseService.syncProfile(profile, activeUid);
+
+      for (const m of mistakes.slice(0, 25)) {
+        await supabaseService.syncSingleMistake(m, activeUid);
+      }
+
+      for (const v of vocab.slice(0, 25)) {
+        await supabaseService.syncSingleVocab(v, activeUid);
+      }
+
+      await supabaseService.syncStats(stats, activeUid);
+
+      return { success: true, message: `All progress for @${activeUid} successfully synced to Supabase!` };
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Sync failed';
+      return { success: false, message: msg };
+    }
   }
 }
 

@@ -20,9 +20,16 @@ import { ProgressView } from './components/progress/ProgressView';
 import { ProfileSettings } from './components/profile/ProfileSettings';
 import { VocabReviewModal } from './components/vocabulary/VocabReviewModal';
 import { OnboardingModal } from './components/onboarding/OnboardingModal';
+import { AuthModal } from './components/auth/AuthModal';
+import { authService, type UserAccount } from './services/authService';
+import { AIFlashcardGenerator } from './components/vocabulary/AIFlashcardGenerator';
 
 export const App: React.FC = () => {
-  // Global User Profile & Preferences
+  // Authentication Gate State - No deadlocks, simple gate
+  const [activeAccount, setActiveAccount] = useState<UserAccount | null>(() => authService.getActiveUser());
+  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(() => !authService.getActiveUser());
+
+  // Global User Profile & Preferences (keyed to active user)
   const [userProfile, setUserProfile] = useState<UserProfile>(() => storageService.getUserProfile());
   const [progressStats, setProgressStats] = useState<ProgressStats>(() => storageService.getProgressStats());
   const [mistakes, setMistakes] = useState<MistakeRecord[]>(() => storageService.getMistakes());
@@ -32,7 +39,7 @@ export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<NavigationTab>('home');
 
   // Modals & Sub-screens
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(() => !userProfile.onboardingCompleted);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [selectedChapter, setSelectedChapter] = useState<LessonChapter | null>(null);
   const [isChapterModalOpen, setIsChapterModalOpen] = useState(false);
   const [isVocabModalOpen, setIsVocabModalOpen] = useState(false);
@@ -48,6 +55,50 @@ export const App: React.FC = () => {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', userProfile.theme || 'dark');
   }, [userProfile.theme]);
+
+  // Check and initialize Supabase cloud sync on mount for active user
+  useEffect(() => {
+    storageService.initCloudSync(activeAccount?.userId).then((res) => {
+      if (res.synced) {
+        setUserProfile(storageService.getUserProfile());
+        setMistakes(storageService.getMistakes());
+        setVocabulary(storageService.getVocabulary());
+        setProgressStats(storageService.getProgressStats());
+      }
+    });
+  }, [activeAccount?.userId]);
+
+  // Handle successful login or registration
+  const handleAuthenticated = (account: UserAccount) => {
+    setActiveAccount(account);
+    setIsAuthOpen(false);
+
+    // Refresh state from active user's local and cloud storage
+    setUserProfile(storageService.getUserProfile());
+    setProgressStats(storageService.getProgressStats());
+    setMistakes(storageService.getMistakes());
+    setVocabulary(storageService.getVocabulary());
+
+    // Trigger cloud sync for this specific user ID
+    storageService.initCloudSync(account.userId).then((res) => {
+      if (res.synced) {
+        setUserProfile(storageService.getUserProfile());
+        setMistakes(storageService.getMistakes());
+        setVocabulary(storageService.getVocabulary());
+        setProgressStats(storageService.getProgressStats());
+      }
+    });
+
+    if (soundEnabled) soundService.playCorrect();
+  };
+
+  // Add AI-generated flashcards to user vocabulary deck
+  const handleAddVocabCards = (newCards: SpacedVocabCard[]) => {
+    storageService.addVocabCards(newCards);
+    setVocabulary(storageService.getVocabulary());
+    setProgressStats(storageService.getProgressStats());
+    if (soundEnabled) soundService.playCorrect();
+  };
 
   // Handlers for profile updates
   const handleUpdateProfile = (updated: UserProfile) => {
@@ -173,6 +224,7 @@ export const App: React.FC = () => {
         onSelectTab={setCurrentTab}
         userProfile={userProfile}
         onStartSpeaking={handleStartSpeaking}
+        onOpenAuth={() => setIsAuthOpen(true)}
       />
 
       {/* 2. Main Application Flow Area */}
@@ -185,6 +237,7 @@ export const App: React.FC = () => {
           onOpenSettings={() => setCurrentTab('profile')}
           soundEnabled={soundEnabled}
           onToggleSound={() => setSoundEnabled(!soundEnabled)}
+          onOpenAuth={() => setIsAuthOpen(true)}
         />
 
         {/* Tab Content Display */}
@@ -219,6 +272,14 @@ export const App: React.FC = () => {
               onSessionComplete={handleSessionComplete}
               initialTopic={tutorTopic}
               initialRoleplayContext={tutorRoleplayContext}
+            />
+          )}
+
+          {currentTab === 'flashcards' && (
+            <AIFlashcardGenerator
+              userProfile={userProfile}
+              onAddCards={handleAddVocabCards}
+              onStartReview={() => setIsVocabModalOpen(true)}
             />
           )}
 
@@ -277,6 +338,14 @@ export const App: React.FC = () => {
       <OnboardingModal
         isOpen={isOnboardingOpen}
         onComplete={handleOnboardingComplete}
+      />
+
+      {/* Frictionless Auth Gate (Register & Login) */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onAuthenticated={handleAuthenticated}
+        allowClose={!!activeAccount}
       />
     </div>
   );

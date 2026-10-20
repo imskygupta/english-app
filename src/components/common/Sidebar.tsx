@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   Home,
   BookOpen,
@@ -8,29 +7,34 @@ import {
   User,
   Flame,
   Zap,
-  Sparkles
+  Sparkles,
+  Layers
 } from 'lucide-react';
 import type { UserProfile } from '../../types/user';
+import { authService } from '../../services/authService';
 
-export type NavigationTab = 'home' | 'learn' | 'tutor' | 'roleplays' | 'progress' | 'profile';
+export type NavigationTab = 'home' | 'learn' | 'tutor' | 'roleplays' | 'flashcards' | 'progress' | 'profile';
 
 interface SidebarProps {
   currentTab: NavigationTab;
   onSelectTab: (tab: NavigationTab) => void;
   userProfile: UserProfile;
   onStartSpeaking: () => void;
+  onOpenAuth?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   onSelectTab,
   userProfile,
-  onStartSpeaking
+  onStartSpeaking,
+  onOpenAuth
 }) => {
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'learn', label: 'Curriculum', icon: BookOpen },
     { id: 'tutor', label: 'AI Tutor', icon: Bot, badge: 'Live AI' },
+    { id: 'flashcards', label: 'AI Flashcards', icon: Layers, badge: 'Deck' },
     { id: 'roleplays', label: 'Roleplay', icon: Theater },
     { id: 'progress', label: 'Progress & Review', icon: BarChart3 },
     { id: 'profile', label: 'Profile & Settings', icon: User }
@@ -151,20 +155,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>Start Speaking Now</span>
         </button>
 
-        {/* User Mini Stats in Footer */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', background: 'var(--bg-card)', padding: '10px 8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Flame size={16} color="var(--amber)" fill="var(--amber)" />
-            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)' }}>
-              {userProfile.streakDays}d streak
-            </span>
+        {/* User Account & Stats in Footer */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 12px',
+              background: 'var(--bg-card)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+              <span style={{ width: 8, height: 8, minWidth: 8, borderRadius: '50%', backgroundColor: 'var(--mint)' }} />
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                @{authService.getActiveUserId()}
+              </span>
+            </div>
+            {onOpenAuth && (
+              <button
+                onClick={onOpenAuth}
+                style={{ fontSize: '0.72rem', color: 'var(--primary-light)', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Switch
+              </button>
+            )}
           </div>
-          <div style={{ width: 1, height: 16, background: 'var(--border-subtle)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Zap size={16} color="var(--primary)" fill="var(--primary)" />
-            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)' }}>
-              {userProfile.totalXP} XP
-            </span>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', background: 'var(--bg-card)', padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Flame size={15} color="var(--amber)" fill="var(--amber)" />
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                {userProfile.streakDays}d streak
+              </span>
+            </div>
+            <div style={{ width: 1, height: 14, background: 'var(--border-subtle)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Zap size={15} color="var(--primary)" fill="var(--primary)" />
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                {userProfile.totalXP} XP
+              </span>
+            </div>
           </div>
         </div>
       </div>

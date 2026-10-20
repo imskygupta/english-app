@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, BookOpen, Bot, Theater, BarChart3, User } from 'lucide-react';
+import { Home, BookOpen, Bot, Layers, Theater, BarChart3, User } from 'lucide-react';
 import type { NavigationTab } from './Sidebar';
 
 interface MobileNavProps {
@@ -12,6 +12,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentTab, onSelectTab })
     { id: 'home', label: 'Home', icon: Home },
     { id: 'learn', label: 'Learn', icon: BookOpen },
     { id: 'tutor', label: 'AI Tutor', icon: Bot, isSpecial: true },
+    { id: 'flashcards', label: 'Cards', icon: Layers },
     { id: 'roleplays', label: 'Roleplay', icon: Theater },
     { id: 'progress', label: 'Progress', icon: BarChart3 },
     { id: 'profile', label: 'Profile', icon: User }

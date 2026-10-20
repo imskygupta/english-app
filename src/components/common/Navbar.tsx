@@ -4,6 +4,8 @@ import { ProgressRing } from './ProgressRing';
 import type { UserProfile } from '../../types/user';
 import type { NavigationTab } from './Sidebar';
 
+import { authService } from '../../services/authService';
+
 interface NavbarProps {
   currentTab: NavigationTab;
   userProfile: UserProfile;
@@ -11,6 +13,7 @@ interface NavbarProps {
   onOpenSettings: () => void;
   soundEnabled: boolean;
   onToggleSound: () => void;
+  onOpenAuth?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,7 +22,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onUpdateProfile,
   onOpenSettings,
   soundEnabled,
-  onToggleSound
+  onToggleSound,
+  onOpenAuth
 }) => {
   const getTabTitle = () => {
     switch (currentTab) {
@@ -31,6 +35,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         return 'AI Speaking Tutor';
       case 'roleplays':
         return 'Real-Life Roleplays';
+      case 'flashcards':
+        return 'AI Flashcards & Vocabulary';
       case 'progress':
         return 'Learning Progress & Mistake Review';
       case 'profile':
@@ -145,6 +151,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             {userProfile.totalXP} XP
           </span>
         </div>
+
+        {/* User Account Pill / Switcher */}
+        {onOpenAuth && (
+          <button
+            onClick={onOpenAuth}
+            className="btn-secondary"
+            title="Switch User Account"
+            style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: 'var(--mint)' }} />
+            <span>@{authService.getActiveUserId()}</span>
+          </button>
+        )}
 
         {/* Sound toggle button */}
         <button
